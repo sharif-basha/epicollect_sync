@@ -81,6 +81,9 @@ DEFINITION = {
 class FakeAPI:
     def __init__(s):
         s.data = {}  # (form_ref, branch_ref) -> {uuid: entry}
+        s.token_calls = 0
+        s.token_status = []  # (status, headers) answers for the next token requests
+        s.unauthorized = False  # answer 401 to every export request
         s.calls = []
         s.project = copy.deepcopy(DEFINITION)
         s.fail = []  # status codes to return before succeeding
@@ -94,11 +97,17 @@ class FakeAPI:
         return e
 
     def post(s, url, json=None, timeout=None):
-        return Resp(200, {"access_token": "tok", "expires_in": 7200})
+        s.token_calls += 1
+        if s.token_status:
+            status, headers = s.token_status.pop(0)
+            return Resp(status, {}, headers)
+        return Resp(200, {"access_token": f"tok{s.token_calls}", "expires_in": 7200})
 
     def get(s, url, headers=None, params=None, timeout=None):
         params = dict(params or {})
         s.calls.append((url, params))
+        if s.unauthorized:
+            return Resp(401, {})
         if s.on_request:
             s.on_request(len(s.calls))
         if s.fail:

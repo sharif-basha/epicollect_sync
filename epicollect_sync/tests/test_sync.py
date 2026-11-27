@@ -252,7 +252,7 @@ class TestSync(SyncTestCase):
         self.api.project = None
         log = self.run_sync()
         self.assertEqual(log.status, "Failed")
-        self.assertIn("project definition", log.error)
+        self.assertIn("HTTP 404", log.error)
 
 
 class TestDeletions(SyncTestCase):
@@ -448,3 +448,65 @@ class TestParsing(FrappeTestCase):
         self.assertEqual(F.fieldname("AGE", {"q_age"}), "q_age_2")
         self.assertLessEqual(len(F.fieldname("x" * 100, set())), 55)
         self.assertTrue(F.is_core("ec5_branch_owner_uuid"))
+
+
+class TestTokenLimit(SyncTestCase):
+    def setUp(self):
+        super().setUp()
+        frappe.cache().delete_value(A._block_key(self.project))
+        frappe.cache().delete_value(A.token_key(self.project))
+
+    def test_token_is_reused_across_runs(self):
+        self.seed(4)
+        self.run_sync()
+        self.run_sync()
+        self.assertEqual(self.api.token_calls, 1)
+
+    def test_limit_stops_run_and_blocks_further_token_requests(self):
+        self.seed(2)
+        self.api.add("F2", f"{self.slug}-m0", ts(20))
+        self.api.token_status = [(429, {"Retry-After": "3530"})]
+        log = self.run_sync()
+        self.assertEqual(log.status, "Failed")
+        self.assertIn("limit on new access tokens", log.error)
+        self.assertNotIn("Traceback", log.error)
+        self.assertEqual(self.api.token_calls, 1)  # not once per form
+        self.assertGreater(A.blocked_for(self.project), 3000)
+        # while blocked: no token request, Sync Now says when to retry, the scheduler skips the project
+        self.run_sync()
+        self.assertEqual(self.api.token_calls, 1)
+        res = S.sync_now(self.slug)
+        self.assertFalse(res["queued"])
+        self.assertIn("minutes", res["message"])
+        self.project.db_set("enabled", 1)
+        queued = []
+        with patch.object(S.frappe, "enqueue", lambda *a, **k: queued.append(k.get("project"))):
+            S.scheduled()
+        self.assertNotIn(self.slug, queued)
+        # once the block expires, syncing resumes
+        frappe.cache().delete_value(A._block_key(self.project))
+        self.assertEqual(self.run_sync().status, "Success")
+        self.assertEqual(self.api.token_calls, 2)
+
+    def test_401_with_fresh_token_does_not_request_more_tokens(self):
+        self.seed(2)
+        self.api.unauthorized = True
+        log = self.run_sync()
+        self.assertEqual(log.status, "Failed")
+        self.assertIn("HTTP 401", log.error)
+        self.assertEqual(self.api.token_calls, 1)
+
+    def test_401_with_old_token_gets_one_new_token(self):
+        self.seed(1)
+        frappe.cache().set_value(A.token_key(self.project), {"token": "old", "at": 0}, expires_in_sec=600)
+        real = self.api.get
+        from epicollect_sync.tests.fakeapi import Resp
+
+        def get(url, headers=None, **k):
+            if headers["Authorization"] == "Bearer old":
+                return Resp(401, {})
+            return real(url, headers=headers, **k)
+
+        with patch.object(self.api, "get", get):
+            self.assertEqual(self.run_sync().status, "Success")
+        self.assertEqual(self.api.token_calls, 1)

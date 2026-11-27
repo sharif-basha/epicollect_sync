@@ -38,8 +38,17 @@ def _enqueue(project, method, msg, **kw):
     return {"queued": True, "message": msg}
 
 
+def _limit_message(project):
+    wait = api.blocked_for(frappe.get_doc(PROJECT, project))
+    if wait:
+        return {"queued": False, "message": f"Epicollect's limit on new access tokens is reached. Try again in "
+                                            f"about {max(1, wait // 60)} minutes; scheduled syncs resume on their own."}
+
+
 @frappe.whitelist()
 def sync_now(project, full_check=0):
+    if msg := _limit_message(project):
+        return msg
     full = bool(int(full_check or 0))
     return _enqueue(project, "epicollect_sync.sync.run_sync",
                     "Full check queued. Follow it in Epicollect Sync Log." if full
@@ -48,6 +57,8 @@ def sync_now(project, full_check=0):
 
 @frappe.whitelist()
 def set_up(project):
+    if msg := _limit_message(project):
+        return msg
     return _enqueue(project, "epicollect_sync.sync.run_setup",
                     "Set-up queued. You will get a message when it finishes.")
 
@@ -84,6 +95,8 @@ def scheduled():
         every = int(p.sync_every or 60)
         if last and get_datetime(last) > add_to_date(now, minutes=-every + 2):  # 2 min slack for scheduler jitter
             continue
+        if api.blocked_for(frappe.get_doc(PROJECT, p.name)):
+            continue  # token limit reached: a run now would only fail and could extend the wait
         if not is_job_enqueued(job_id(p.name)):
             frappe.enqueue("epicollect_sync.sync.run_sync", project=p.name, trigger="Scheduled", queue="long",
                            timeout=JOB_TIMEOUT, job_id=job_id(p.name), deduplicate=True)
@@ -104,8 +117,11 @@ def _project(name):
 def _definition(p):
     try:
         return api.project_definition(p)
+    except api.TokenLimitReached:
+        raise
     except Exception:
-        frappe.log_error(frappe.get_traceback(), f"Epicollect: could not read project definition of {p.name}")
+        frappe.log_error(title=f"Epicollect: could not read project definition of {p.name}",
+                         message=frappe.get_traceback())
         return None
 
 
@@ -274,14 +290,23 @@ def run_sync(project, trigger="Manual", full_check=False):
                 dashboards.ensure(p)
             frappe.db.commit()  # keep new targets even if a later target fails and rolls back
         if not targets.project_targets(p.name):
-            frappe.throw("Epicollect Sync could not read the project definition, so it doesn't know the project's "
-                         "forms yet. Check the credentials with Test Connection, then try again.")
+            # First run and the definition could not be read: ask again without hiding the reason (401, 404...).
+            d = api.project_definition(p)
+            targets.ensure_targets(p, d)
+            frappe.db.commit()
         for t in targets.project_targets(p.name):
             counts = {"fetched": 0, "inserted": 0, "updated": 0, "unchanged": 0, "deleted": 0, "note": ""}
             full = bool(full_check) or _full_check_due(p, t)
             any_full = any_full or full
             try:
                 _sync_target(p, t, full, defn_cache, counts)
+            except api.TokenLimitReached as e:
+                # No form can sync without a token: stop here instead of asking again for each form.
+                frappe.db.rollback()
+                status, err = "Failed", err + str(e)
+                counts["note"] = "Not synced: Epicollect token limit reached."
+                details.append({"target": t.name, "target_doctype": t.target_doctype, **counts})
+                break
             except Exception:
                 frappe.db.rollback()
                 status = "Failed"
@@ -289,16 +314,19 @@ def run_sync(project, trigger="Manual", full_check=False):
                 err += f"--- {t.target_doctype}\n{tb}\n"
                 counts["note"] = (counts["note"] + " " if counts["note"] else "") + "Failed: see the error below."
             details.append({"target": t.name, "target_doctype": t.target_doctype, **counts})
+    except api.TokenLimitReached as e:
+        frappe.db.rollback()
+        status, err = "Failed", err + str(e)
     except Exception:
         frappe.db.rollback()
         status, err = "Failed", err + frappe.get_traceback()
     if status == "Failed":
-        frappe.log_error(err, f"Epicollect Sync failed: {project}")
+        frappe.log_error(title=f"Epicollect Sync failed: {project}", message=err)
     _finish_log(log.name, status, err, details, any_full, time.time() - t0)
     try:
         notify.after_run(project, log.name, status, err)
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Epicollect Sync: notification failed")
+        frappe.log_error(title="Epicollect Sync: notification failed", message=frappe.get_traceback())
 
 
 def _finish_log(name, status, err, details, full, duration):
