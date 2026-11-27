@@ -1,0 +1,90 @@
+{
+ "doctype": "DocType",
+ "name": "Epicollect Sync Log",
+ "module": "Epicollect Sync",
+ "custom": 0,
+ "engine": "InnoDB",
+ "creation": "2026-11-11 00:00:00",
+ "modified": "2026-11-11 00:00:00",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Running\nSuccess\nFailed",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "triggered_by",
+   "fieldtype": "Select",
+   "label": "Triggered By",
+   "options": "Manual\nScheduled",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "fetched",
+   "fieldtype": "Int",
+   "label": "Fetched",
+   "read_only": 1
+  },
+  {
+   "fieldname": "inserted",
+   "fieldtype": "Int",
+   "label": "New",
+   "read_only": 1
+  },
+  {
+   "fieldname": "updated",
+   "fieldtype": "Int",
+   "label": "Changed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "unchanged",
+   "fieldtype": "Int",
+   "label": "Unchanged",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration",
+   "fieldtype": "Float",
+   "label": "Duration (s)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "checkpoint",
+   "fieldtype": "Data",
+   "label": "Checkpoint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Long Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "delete": 1
+  }
+ ],
+ "autoname": "format:SYNC-{#####}",
+ "naming_rule": "Expression"
+}
