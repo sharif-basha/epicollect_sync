@@ -13,7 +13,7 @@ import pytest
 
 class FakeDB:
     def __init__(self):
-        self.single = {"field_map": "", "last_uploaded_at": "", "enabled": 1}
+        self.single = {"field_map": "", "typed_map": "", "last_uploaded_at": "", "enabled": 1}
         self.rows = {"Epicollect Entry": {}, "Epicollect Sync Log": {}}
         self.queries = 0
 
@@ -92,19 +92,26 @@ def make_frappe():
         raise Exception(msg)
     frappe.throw = throw
 
-    def get_all(dt, filters=None, fields=None, as_list=False, pluck=None):
+    def get_all(dt, filters=None, fields=None, as_list=False, pluck=None, order_by=None, limit_page_length=None):
         db.queries += 1
         rows = list(db.rows[dt].values())
+        if order_by:
+            rows.sort(key=lambda r: r[order_by.split()[0]])
         for k, cond in (filters or {}).items():
             if isinstance(cond, list) and cond[0] == "in":
                 rows = [r for r in rows if r.get(k) in cond[1]]
             elif isinstance(cond, list) and cond[0] == "!=":
                 rows = [r for r in rows if r.get(k) != cond[1]]
+            elif isinstance(cond, list) and cond[0] == ">":
+                rows = [r for r in rows if r.get(k) > cond[1]]
             else:
                 rows = [r for r in rows if r.get(k) == cond]
+        rows = rows[:limit_page_length] if limit_page_length else rows
         if pluck:
             return [r[pluck] for r in rows]
-        return [tuple(r.get(f) for f in fields) for r in rows] if as_list else rows
+        if as_list:
+            return [tuple(r.get(f) for f in fields) for r in rows]
+        return [{f: r.get(f) for f in fields} for r in rows] if fields else rows
     frappe.get_all = get_all
 
     counter = {"n": 0}
@@ -133,6 +140,30 @@ def make_frappe():
     return frappe, mods
 
 
+# Shape of /export/project/{slug}: inputs (with nested group and branch inputs) and per-form mappings.
+DEFINITION = {
+    "data": {"project": {"forms": [{"ref": "f1", "inputs": [
+        {"ref": "f1_age", "type": "integer", "question": "<b>Age?</b>"},
+        {"ref": "f1_inc", "type": "decimal", "question": "Income"},
+        {"ref": "f1_dob", "type": "date", "question": "Date of birth", "datetime_format": "dd/MM/YYYY"},
+        {"ref": "f1_loc", "type": "location", "question": "Location"},
+        {"ref": "f1_grp", "type": "group", "question": "Household", "group": [
+            {"ref": "f1_grp_n", "type": "integer", "question": "Members"}]},
+        {"ref": "f1_br", "type": "branch", "question": "Visits", "branch": [
+            {"ref": "f1_br_d", "type": "date", "question": "Visit date"}]},
+        {"ref": "f1_name", "type": "text", "question": "Name"},
+    ]}]}},
+    "meta": {"project_mapping": [
+        {"map_index": 0, "is_default": True, "forms": {"f1": {
+            "f1_age": {"map_to": "1_age"}, "f1_inc": {"map_to": "2_inc"}, "f1_dob": {"map_to": "3_dob"},
+            "f1_loc": {"map_to": "4_loc"}, "f1_grp": {"map_to": "5_grp", "group": {"f1_grp_n": {"map_to": "6_n"}}},
+            "f1_br": {"map_to": "7_br", "branch": {"f1_br_d": {"map_to": "8_vd"}}},
+            "f1_name": {"map_to": "9_name"}}}},
+        {"map_index": 1, "is_default": False, "forms": {"f1": {"f1_age": {"map_to": "age"}}}},
+    ]},
+}
+
+
 class FakeAPI:
     """Serves /export/entries with uploaded_at filtering, ASC sort and page numbers, like Epicollect."""
 
@@ -141,6 +172,7 @@ class FakeAPI:
         self.calls = []
         self.on_request = None  # hook to mutate data mid-run
         self.fail = []          # status codes to return before succeeding
+        self.project = DEFINITION
 
     def add(self, uuid, uploaded, **answers):
         self.entries[uuid] = {"ec5_uuid": uuid, "title": uuid, "created_at": uploaded,
@@ -153,9 +185,7 @@ class FakeAPI:
         if self.fail:
             return FakeResponse(self.fail.pop(0), {})
         if "/export/project/" in url:
-            return FakeResponse(200, {"data": {"project": {"forms": [{"inputs": [
-                {"ref": "r1", "question": "<b>Age?</b>"}]}]}}, "meta": {"project_mapping": [
-                {"forms": {"f": {"r1": {"map_to": "1_age"}}}}]}})
+            return FakeResponse(200, self.project) if self.project else FakeResponse(404, {})
         rows = sorted(self.entries.values(), key=lambda e: e["uploaded_at"])
         if params.get("filter_from"):
             rows = [e for e in rows if e["uploaded_at"] >= params["filter_from"]]

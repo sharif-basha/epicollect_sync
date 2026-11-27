@@ -5,7 +5,7 @@
  "custom": 0,
  "engine": "InnoDB",
  "creation": "2026-11-11 00:00:00",
- "modified": "2026-11-11 00:00:00",
+ "modified": "2026-11-27 00:00:00",
  "owner": "Administrator",
  "modified_by": "Administrator",
  "sort_field": "modified",
@@ -73,6 +73,14 @@
    "fieldname": "field_map",
    "fieldtype": "Code",
    "label": "Field Map",
+   "options": "JSON",
+   "hidden": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "typed_map",
+   "fieldtype": "Code",
+   "label": "Typed Field Map",
    "options": "JSON",
    "hidden": 1,
    "read_only": 1

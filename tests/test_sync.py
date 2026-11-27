@@ -174,3 +174,112 @@ def test_fieldname_collisions_and_length(env):
     assert env.sync._fieldname("AGE", used) == "q_age_2"
     long = env.sync._fieldname("x" * 100, set())
     assert len(long) <= 55
+
+
+# ---------------------------------------------------------------- typed fields
+from datetime import date  # noqa: E402
+
+ANSWERS = {"1_age": "34", "2_inc": "1250.5", "3_dob": "1990-03-05T00:00:00.000",
+           "4_loc": {"latitude": 16.5062, "longitude": 80.648, "accuracy": 12}, "6_n": "5", "9_name": "Ravi"}
+
+
+def by_label(env):
+    return {f["label"]: f for f in env.frappe.custom_fields}
+
+
+def test_definition_parsing(env):
+    d = env.sync._parse_definition(env.api.project)
+    assert d["1_age"] == {"label": "Age?", "type": "integer", "datetime_format": None}
+    assert d["6_n"]["type"] == "integer"  # inside a group
+    assert "8_vd" not in d                 # inside a branch: not part of the form's entries
+    assert env.sync._parse_definition(env.api.project, map_index="1") == {
+        "age": {"label": "Age?", "type": "integer", "datetime_format": None}}
+
+
+def test_definition_fallback_when_shape_unknown(env):
+    env.api.project = {"something": [{"ref": "r", "question": "Q"}, {"r": {"map_to": "k"}}]}
+    assert env.sync._definition(env.frappe.settings) == {"k": {"label": "Q"}}
+
+
+def test_sync_creates_and_fills_typed_columns(env):
+    env.api.add("u1", ts(1), **ANSWERS)
+    env.sync.run_sync()
+    assert last_log(env)["status"] == "Success", last_log(env)["error"]
+    f = by_label(env)
+    assert f["Age? (number)"]["fieldtype"] == "Int"
+    assert f["Income (number)"]["fieldtype"] == "Float"
+    assert f["Date of birth (date)"]["fieldtype"] == "Date"
+    assert f["Location (latitude)"]["precision"] == "7"
+    assert "Name (number)" not in f and "Name" in f
+    # typed columns sit right after their text field
+    names = [x["fieldname"] for x in env.frappe.custom_fields]
+    assert names.index(f["Age? (number)"]["fieldname"]) == names.index(f["Age?"]["fieldname"]) + 1
+    r = rows(env)["u1"]
+    assert r[f["Age? (number)"]["fieldname"]] == 34
+    assert r[f["Income (number)"]["fieldname"]] == 1250.5
+    assert r[f["Date of birth (date)"]["fieldname"]] == date(1990, 3, 5)
+    assert r[f["Location (latitude)"]["fieldname"]] == 16.5062
+    assert r[f["Location (accuracy m)"]["fieldname"]] == 12
+    assert r[f["Members (number)"]["fieldname"]] == 5
+    assert r[f["Age?"]["fieldname"]] == "34"  # text field keeps the answer as received
+
+
+def test_bad_values_leave_typed_columns_empty(env):
+    env.api.add("u1", ts(1), **{**ANSWERS, "1_age": "abc", "2_inc": "", "3_dob": "",
+                                  "4_loc": {"latitude": "", "longitude": "", "accuracy": ""}, "6_n": "99999999999"})
+    env.sync.run_sync()
+    assert last_log(env)["status"] == "Success"
+    r, f = rows(env)["u1"], by_label(env)
+    for label in ("Age? (number)", "Income (number)", "Date of birth (date)", "Location (latitude)",
+                  "Members (number)"):
+        assert r[f[label]["fieldname"]] is None, label
+    assert r[f["Age?"]["fieldname"]] == "abc"
+
+
+@pytest.mark.parametrize("v,dayfirst,expect", [
+    ("2024-01-31T00:00:00.000", False, date(2024, 1, 31)),
+    ("2024-01-31", True, date(2024, 1, 31)),
+    ("05/03/2024", True, date(2024, 3, 5)),
+    ("05/03/2024", False, date(2024, 5, 3)),
+    ("2024-02-30T00:00:00", False, None),
+    ("rubbish", False, None),
+    (None, False, None),
+])
+def test_date_parsing(env, v, dayfirst, expect):
+    assert env.sync._date(v, dayfirst) == expect
+
+
+@pytest.mark.parametrize("v,expect", [
+    ({"latitude": "16.5", "longitude": "80.6", "accuracy": "5"}, {"lat": 16.5, "lng": 80.6, "acc": 5.0}),
+    ('{"latitude": 16.5, "longitude": 80.6}', {"lat": 16.5, "lng": 80.6, "acc": None}),
+    ({"latitude": 95, "longitude": 80}, {}),
+    ({"latitude": "", "longitude": ""}, {}),
+    ("not json", {}),
+])
+def test_location_parsing(env, v, expect):
+    assert env.sync._location(v) == expect
+
+
+def test_create_fields_backfills_existing_entries(env):
+    """An install synced before typed columns existed: Create Fields adds them and fills old rows."""
+    env.api.project = None  # definition unavailable: only text fields are created
+    for i in range(3):
+        env.api.add(f"u{i}", ts(i), **{**ANSWERS, "1_age": str(30 + i)})
+    env.sync.run_sync()
+    assert not any(x["fieldtype"] == "Int" for x in env.frappe.custom_fields)
+    n_text = len(env.frappe.custom_fields)
+
+    from tests.conftest import DEFINITION
+    env.api.project = DEFINITION
+    env.sync.build_fields()
+    assert len([x for x in env.frappe.custom_fields if x["fieldtype"] == "Small Text"]) == n_text  # no duplicates
+    age = env.sync._tmap()["1_age"]["fields"]["value"]
+    assert [rows(env)[f"u{i}"][age] for i in range(3)] == [30, 31, 32]
+    lat = env.sync._tmap()["4_loc"]["fields"]["lat"]
+    assert rows(env)["u0"][lat] == 16.5062  # location parsed back from its JSON text
+
+    # running it again creates nothing and changes nothing
+    before = len(env.frappe.custom_fields)
+    env.sync.build_fields()
+    assert len(env.frappe.custom_fields) == before
+    assert env.sync._backfill(["1_age"]) == 0

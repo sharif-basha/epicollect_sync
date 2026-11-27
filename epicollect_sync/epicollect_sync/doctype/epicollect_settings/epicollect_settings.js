@@ -12,7 +12,7 @@ frappe.ui.form.on("Epicollect Settings", {
 		};
 		frm.add_custom_button(__("Sync Now"), () => queue("epicollect_sync.sync.sync_now", __("Queuing sync...")));
 		frm.add_custom_button(__("Create Fields"), () => {
-			frappe.confirm(__("Scan Epicollect and create one field per question on Epicollect Entry. This can take several minutes. Continue?"), () =>
+			frappe.confirm(__("Scan Epicollect and create one field per question on Epicollect Entry, plus number, date and location columns where the question type allows, then fill those columns for entries already synced. This can take several minutes. Continue?"), () =>
 				queue("epicollect_sync.sync.create_fields", __("Queuing field creation...")));
 		});
 		frm.add_custom_button(__("Reset Checkpoint"), () => {

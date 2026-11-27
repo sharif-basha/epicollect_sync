@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import frappe
 import requests
@@ -198,12 +198,69 @@ def _pages(s, since=None):
     raise RuntimeError("Epicollect Sync stopped: too many requests in one run")
 
 
-def _labels(s):
-    """Best effort: API key -> question text, read from the project definition. Falls back to {}."""
+def _clean(q):
+    return strip_html(str(q or "")).strip()
+
+
+def _definition(s):
+    """Best effort: API key -> {"label", "type", "datetime_format"}, read from the project definition.
+
+    Uses the configured form (or the first one) and mapping (or the default one). Questions inside a
+    branch are skipped: their answers are not part of the form's entries. Falls back to labels only
+    (no types) if the definition has an unexpected shape, and to {} if it can't be fetched.
+    """
     try:
         d = _get(s, f"/export/project/{s.project_slug}")
     except Exception:
         return {}
+    try:
+        out = _parse_definition(d, s.form_ref, s.map_index)
+    except Exception:
+        out = {}
+    return out or {k: {"label": v} for k, v in _labels_any(d).items()}
+
+
+NO_ANSWER = {"group", "branch", "readme"}  # containers and notes: no answer in the form's entries
+
+
+def _parse_definition(d, form_ref=None, map_index=None):
+    forms = ((d.get("data") or {}).get("project") or {}).get("forms") or []
+    form = next((f for f in forms if f.get("ref") == form_ref), None) if form_ref else (forms[0] if forms else None)
+    if not form:
+        return {}
+    inputs = {}
+
+    def walk_inputs(lst, in_branch):
+        for i in lst or []:
+            if isinstance(i, dict) and i.get("ref"):
+                inputs[i["ref"]] = (i, in_branch)
+                walk_inputs(i.get("group"), in_branch)
+                walk_inputs(i.get("branch"), True)
+
+    walk_inputs(form.get("inputs"), False)
+    mappings = [m for m in (d.get("meta") or {}).get("project_mapping") or [] if isinstance(m, dict)]
+    mapping = None
+    if str(map_index or "").strip():
+        mapping = next((m for m in mappings if str(m.get("map_index")) == str(map_index).strip()), None)
+    mapping = mapping or next((m for m in mappings if m.get("is_default")), None) or (mappings[0] if mappings else {})
+    out = {}
+
+    def walk_map(m):
+        for ref, v in (m or {}).items():
+            if not isinstance(v, dict):
+                continue
+            i, in_branch = inputs.get(ref, (None, True))
+            if i and not in_branch and v.get("map_to") and i.get("type") not in NO_ANSWER:
+                out[v["map_to"]] = {"label": _clean(i.get("question")), "type": i.get("type"),
+                                    "datetime_format": i.get("datetime_format")}
+            walk_map(v.get("group"))
+
+    walk_map((mapping.get("forms") or {}).get(form["ref"]))
+    return out
+
+
+def _labels_any(d):
+    """Shape-agnostic fallback: API key -> question text, from any ref/question and map_to pairs."""
     questions, maps = {}, {}
 
     def walk(o, key=None):
@@ -219,7 +276,7 @@ def _labels(s):
                 walk(v, key)
 
     walk(d)
-    return {m: strip_html(str(questions[ref])).strip() for m, ref in maps.items() if ref in questions}
+    return {m: _clean(questions[ref]) for m, ref in maps.items() if ref in questions}
 
 
 # ---------------------------------------------------------------- fields
@@ -237,38 +294,171 @@ def _fieldname(key, used):
     return name
 
 
-def _add_fields(keys, labels=None):
-    """One Small Text custom field per new API key. Small Text avoids MariaDB's row-size limit."""
-    labels, fmap = labels or {}, _map()
+# Typed companion columns. The q_ Small Text field always keeps the answer exactly as received; these
+# hold a parsed copy for filtering, sorting, charts and maps. A value that can't be parsed is left empty.
+KIND = {"integer": "int", "decimal": "number", "date": "date", "location": "location"}
+PARTS = {  # kind -> (part, fieldname suffix, fieldtype, label suffix, extra field props)
+    "int": [("value", "_num", "Int", "number", {})],
+    "number": [("value", "_num", "Float", "number", {"precision": "6"})],
+    "date": [("value", "_date", "Date", "date", {})],
+    "location": [("lat", "_lat", "Float", "latitude", {"precision": "7"}),
+                 ("lng", "_lng", "Float", "longitude", {"precision": "7"}),
+                 ("acc", "_acc", "Float", "accuracy m", {"precision": "1"})],
+}
+INT_MIN, INT_MAX = -(2 ** 31), 2 ** 31 - 1  # Frappe Int is a signed 32-bit column
+
+
+def _tmap():
+    return json.loads(frappe.db.get_single_value(SETTINGS, "typed_map") or "{}")
+
+
+def _unique(name, used):
+    out, i = name, 2
+    while out in used:
+        out, i = f"{name[:58]}_{i}", i + 1
+    used.add(out)
+    return out
+
+
+def _add_fields(keys, defn=None):
+    """Create missing fields for these API keys: one Small Text field per key (Small Text avoids MariaDB's
+    row-size limit), plus typed companion columns for number, date and location questions.
+    Returns (text fields created, keys that got new typed columns)."""
+    defn, fmap, tmap = defn or {}, _map(), _tmap()
     meta = frappe.get_meta(DT, cached=False)
     used = set(fmap.values()) | {df.fieldname for df in meta.fields}
-    prev, fields = meta.fields[-1].fieldname, []
+    prev, fields, n_text, typed_keys = meta.fields[-1].fieldname, [], 0, []
     for k in keys:
-        if k in fmap or k in CORE:
+        if k in CORE:
             continue
-        fn = _fieldname(k, used)
-        used.add(fn)
-        fmap[k] = fn
-        fields.append({"fieldname": fn, "fieldtype": "Small Text", "label": str(labels.get(k) or k)[:140],
-                       "read_only": 1, "insert_after": prev})
-        prev = fn
+        info = defn.get(k) or {}
+        label = str(info.get("label") or k)
+        if k not in fmap:
+            fmap[k] = fn = _fieldname(k, used)
+            used.add(fn)
+            fields.append({"fieldname": fn, "fieldtype": "Small Text", "label": label[:140],
+                           "read_only": 1, "insert_after": prev})
+            prev, n_text = fn, n_text + 1
+        kind = KIND.get(info.get("type"))
+        if kind and k not in tmap:
+            after, parts = fmap[k], {}
+            for part, suffix, ftype, lsuffix, extra in PARTS[kind]:
+                tfn = _unique(fmap[k][:64 - len(suffix)] + suffix, used)
+                fields.append({"fieldname": tfn, "fieldtype": ftype, "label": f"{label[:120]} ({lsuffix})",
+                               "read_only": 1, "insert_after": after, **extra})
+                parts[part], after = tfn, tfn
+            if prev == fmap[k]:
+                prev = after
+            tmap[k] = {"kind": kind, "fields": parts,
+                       "dayfirst": str(info.get("datetime_format") or "").lower().startswith("dd")}
+            typed_keys.append(k)
     if fields:
         create_custom_fields({DT: fields}, update=True)
         frappe.db.set_single_value(SETTINGS, "field_map", json.dumps(fmap))
+        frappe.db.set_single_value(SETTINGS, "typed_map", json.dumps(tmap))
         frappe.clear_cache(doctype=DT)
         frappe.db.commit()
-    return len(fields)
+    return n_text, typed_keys
+
+
+def _num(v, kind):
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        f = float(str(v).strip())
+    except ValueError:
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    if kind == "int":
+        return int(f) if f.is_integer() and INT_MIN <= f <= INT_MAX else None
+    return f
+
+
+ISO_DATE = re.compile(r"^\s*(\d{4})-(\d{2})-(\d{2})")
+
+
+def _date(v, dayfirst=False):
+    """Epicollect stores dates as ISO text at local midnight ('2024-01-31T00:00:00.000'); use the date part
+    as is, with no timezone shift. Anything else is parsed with the question's day/month order."""
+    if not v or not isinstance(v, str):
+        return None
+    if m := ISO_DATE.match(v):
+        try:
+            return date(int(m[1]), int(m[2]), int(m[3]))
+        except ValueError:
+            return None
+    try:
+        return dtparser.parse(v, dayfirst=dayfirst).date()
+    except (ValueError, OverflowError):
+        return None
+
+
+def _location(v):
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return {}
+    if not isinstance(v, dict):
+        return {}
+    lat, lng = _num(v.get("latitude"), "number"), _num(v.get("longitude"), "number")
+    if lat is None or lng is None or not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return {}
+    acc = _num(v.get("accuracy"), "number")
+    return {"lat": lat, "lng": lng, "acc": acc if acc is not None and acc >= 0 else None}
+
+
+def _typed(spec, v):
+    """Typed column values for one answer: {fieldname: value}. Empty or unparseable answers give None."""
+    kind, f = spec["kind"], spec["fields"]
+    if kind == "location":
+        loc = _location(v)
+        return {fn: loc.get(part) for part, fn in f.items()}
+    if kind == "date":
+        return {f["value"]: _date(v, spec.get("dayfirst"))}
+    return {f["value"]: _num(v, kind)}
+
+
+def _backfill(keys):
+    """Fill typed columns of existing entries from their text fields. Returns the number of entries changed."""
+    fmap, tmap = _map(), _tmap()
+    specs = {k: tmap[k] for k in keys if k in tmap and k in fmap}
+    if not specs:
+        return 0
+    cols = list(dict.fromkeys([fmap[k] for k in specs] + [fn for sp in specs.values() for fn in sp["fields"].values()]))
+    last, changed = "", 0
+    while True:
+        rows = frappe.get_all(DT, filters={"name": [">", last]}, fields=["name"] + cols,
+                              order_by="name asc", limit_page_length=1000)
+        if not rows:
+            return changed
+        for r in rows:
+            vals = {}
+            for k, spec in specs.items():
+                vals.update(_typed(spec, r.get(fmap[k])))
+            vals = {fn: v for fn, v in vals.items() if r.get(fn) != v}
+            if vals:
+                frappe.db.set_value(DT, r["name"], vals, update_modified=False)
+                changed += 1
+        last = rows[-1]["name"]
+        frappe.db.commit()
 
 
 def build_fields():
-    """Scan every entry (keys can appear in only a few) and create all missing fields."""
+    """Scan every entry (keys can appear in only a few) and create all missing fields, including typed
+    columns for questions synced before they existed, then fill those columns for existing entries."""
     s = _settings()
-    keys = {}
+    defn = _definition(s)
+    keys = dict.fromkeys(defn)
     for entries in _pages(s):
         for e in entries:
             keys.update(dict.fromkeys(e))
-    n = _add_fields([k for k in keys if k not in CORE], _labels(s))
-    frappe.publish_realtime("msgprint", f"Epicollect Sync: created {n} new fields on Epicollect Entry.",
+    keys.update(dict.fromkeys(_map()))
+    n_text, typed_keys = _add_fields([k for k in keys if k not in CORE], defn)
+    n_filled = _backfill(typed_keys)
+    frappe.publish_realtime("msgprint", f"Epicollect Sync: created {n_text} question fields and typed columns "
+                            f"for {len(typed_keys)} questions; filled typed values on {n_filled} entries.",
                             user=frappe.session.user)
 
 
@@ -294,17 +484,19 @@ def _hash(e):
     return hashlib.sha1(json.dumps(e, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
-def _row(e, fmap, h):
+def _row(e, fmap, h, tmap=None):
     """Column values for one entry. Every mapped field is set, so an answer removed in Epicollect is cleared."""
     vals = {"ec5_uuid": e["ec5_uuid"], "entry_title": _val(e.get("title")),
             "created_by": (_val(e.get("created_by")) or "")[:140] or None,
             "created_at": _dt(e.get("created_at")), "uploaded_at": _dt(e.get("uploaded_at")),
             "data_hash": h, "raw_json": json.dumps(e, ensure_ascii=False, default=str)}
     vals.update({fn: _val(e.get(k)) for k, fn in fmap.items()})
+    for k, spec in (tmap or {}).items():
+        vals.update(_typed(spec, e.get(k)))
     return vals
 
 
-def _save_page(entries, fmap):
+def _save_page(entries, fmap, tmap=None):
     """Insert new entries in bulk; update only those whose data hash changed. Returns counts."""
     by_uuid = {e["ec5_uuid"]: e for e in entries}  # the last copy wins if the API repeats an entry
     n = {"inserted": 0, "updated": 0, "unchanged": 0}
@@ -319,12 +511,12 @@ def _save_page(entries, fmap):
             if existing[uuid] == h:
                 n["unchanged"] += 1
                 continue
-            vals = _row(e, fmap, h)
+            vals = _row(e, fmap, h, tmap)
             vals.pop("ec5_uuid")
             frappe.db.set_value(DT, uuid, vals)
             n["updated"] += 1
         else:
-            new_rows.append(_row(e, fmap, h))
+            new_rows.append(_row(e, fmap, h, tmap))
     if new_rows:
         now, user = now_datetime(), frappe.session.user
         cols = list(new_rows[0])
@@ -361,9 +553,9 @@ def run_sync(trigger="Manual"):
             fmap = _map()
             missing = [k for k in dict.fromkeys(k for e in entries for k in e) if k not in CORE and k not in fmap]
             if missing:  # new question appeared: create its field before saving the page
-                _add_fields(missing, _labels(s))
+                _add_fields(missing, _definition(s))
                 fmap = _map()
-            for k, v in _save_page(entries, fmap).items():
+            for k, v in _save_page(entries, fmap, _tmap()).items():
                 n[k] += v
             n["fetched"] += len(entries)
             times = [t for t in (_dt(e.get("uploaded_at")) for e in entries) if t]
