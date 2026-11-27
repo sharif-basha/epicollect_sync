@@ -1,0 +1,119 @@
+{
+ "charts": [
+  {
+   "chart_name": "Epicollect Entries Added per Day",
+   "label": "Epicollect Entries Added per Day"
+  },
+  {
+   "chart_name": "Epicollect Failed Syncs per Day",
+   "label": "Epicollect Failed Syncs per Day"
+  }
+ ],
+ "content": "[{\"id\": \"h1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Sync health</b></span>\", \"col\": 12}}, {\"id\": \"c1\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Epicollect Entries Added (7 days)\", \"col\": 4}}, {\"id\": \"c2\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Epicollect Syncs (7 days)\", \"col\": 4}}, {\"id\": \"c3\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Epicollect Failed Syncs (7 days)\", \"col\": 4}}, {\"id\": \"g1\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Epicollect Entries Added per Day\", \"col\": 6}}, {\"id\": \"g2\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Epicollect Failed Syncs per Day\", \"col\": 6}}, {\"id\": \"h2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Go to</b></span>\", \"col\": 12}}, {\"id\": \"s1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Projects\", \"col\": 3}}, {\"id\": \"s2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Logs\", \"col\": 3}}, {\"id\": \"s3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Synced Forms\", \"col\": 3}}, {\"id\": \"s4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Dashboards\", \"col\": 3}}]",
+ "creation": "2026-11-27 18:12:51.142574",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "map",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Epicollect",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Epicollect",
+   "link_count": 0,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Epicollect Project",
+   "link_count": 0,
+   "link_to": "Epicollect Project",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Epicollect Sync Log",
+   "link_count": 0,
+   "link_to": "Epicollect Sync Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Epicollect Sync Target",
+   "link_count": 0,
+   "link_to": "Epicollect Sync Target",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-11-27 18:12:51.142574",
+ "modified_by": "Administrator",
+ "module": "Epicollect Sync",
+ "name": "Epicollect",
+ "number_cards": [
+  {
+   "label": "Epicollect Entries Added (7 days)",
+   "number_card_name": "Epicollect Entries Added (7 days)"
+  },
+  {
+   "label": "Epicollect Syncs (7 days)",
+   "number_card_name": "Epicollect Syncs (7 days)"
+  },
+  {
+   "label": "Epicollect Failed Syncs (7 days)",
+   "number_card_name": "Epicollect Failed Syncs (7 days)"
+  }
+ ],
+ "owner": "Administrator",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 0.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Projects",
+   "link_to": "Epicollect Project",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Sync Logs",
+   "link_to": "Epicollect Sync Log",
+   "stats_filter": "{\"status\": \"Failed\"}",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Synced Forms",
+   "link_to": "Epicollect Sync Target",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Dashboards",
+   "type": "URL",
+   "url": "/app/dashboard"
+  }
+ ],
+ "title": "Epicollect"
+}

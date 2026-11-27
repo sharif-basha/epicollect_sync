@@ -5,18 +5,29 @@
  "custom": 0,
  "engine": "InnoDB",
  "creation": "2026-11-11 00:00:00",
- "modified": "2026-11-11 00:00:00",
+ "modified": "2026-11-27 12:00:00",
  "owner": "Administrator",
  "modified_by": "Administrator",
- "sort_field": "modified",
+ "sort_field": "started_at",
  "sort_order": "DESC",
  "fields": [
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "options": "Epicollect Project",
+   "label": "Project",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
   {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "label": "Started At",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "search_index": 1
   },
   {
    "fieldname": "status",
@@ -60,15 +71,28 @@
    "read_only": 1
   },
   {
+   "fieldname": "deleted",
+   "fieldtype": "Int",
+   "label": "Deleted",
+   "read_only": 1
+  },
+  {
    "fieldname": "duration",
    "fieldtype": "Float",
    "label": "Duration (s)",
    "read_only": 1
   },
   {
-   "fieldname": "checkpoint",
-   "fieldtype": "Data",
-   "label": "Checkpoint",
+   "fieldname": "full_check",
+   "fieldtype": "Check",
+   "label": "Full Check",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Table",
+   "options": "Epicollect Sync Log Target",
+   "label": "Per Form",
    "read_only": 1
   },
   {
@@ -82,7 +106,8 @@
   {
    "role": "System Manager",
    "read": 1,
-   "delete": 1
+   "delete": 1,
+   "report": 1
   }
  ],
  "autoname": "format:SYNC-{#####}",

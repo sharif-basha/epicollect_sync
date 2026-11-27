@@ -1,0 +1,23 @@
+{
+ "creation": "2026-11-27 18:12:50.934181",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Epicollect Sync Log",
+ "dynamic_filters_json": "[[\"Epicollect Sync Log\", \"started_at\", \">=\", \"frappe.datetime.add_days(frappe.datetime.now_date(), -7)\"]]",
+ "filters_json": "[]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Epicollect Syncs (7 days)",
+ "modified": "2026-11-27 18:12:50.934181",
+ "modified_by": "Administrator",
+ "module": "Epicollect Sync",
+ "name": "Epicollect Syncs (7 days)",
+ "owner": "Administrator",
+ "report_function": "Sum",
+ "show_full_number": 0,
+ "show_percentage_stats": 1,
+ "stats_time_interval": "Daily",
+ "type": "Document Type"
+}

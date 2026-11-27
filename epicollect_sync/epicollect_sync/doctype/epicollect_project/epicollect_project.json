@@ -1,0 +1,154 @@
+{
+ "doctype": "DocType",
+ "name": "Epicollect Project",
+ "module": "Epicollect Sync",
+ "custom": 0,
+ "engine": "InnoDB",
+ "creation": "2026-11-11 00:00:00",
+ "modified": "2026-11-27 12:00:00",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled (scheduled sync)",
+   "default": "1"
+  },
+  {
+   "fieldname": "project_slug",
+   "fieldtype": "Data",
+   "label": "Project Slug",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "description": "The part after /project/ in the Epicollect project address"
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "label": "Project Name",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Filled in by Test Connection"
+  },
+  {
+   "fieldname": "col_creds",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "client_id",
+   "fieldtype": "Data",
+   "label": "Client ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "client_secret",
+   "fieldtype": "Password",
+   "label": "Client Secret",
+   "reqd": 1
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Schedule"
+  },
+  {
+   "fieldname": "sync_every",
+   "fieldtype": "Select",
+   "label": "Sync Every (minutes)",
+   "options": "15\n30\n60\n180\n360\n720\n1440",
+   "default": "60"
+  },
+  {
+   "fieldname": "col_sched",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "check_deletions",
+   "fieldtype": "Select",
+   "label": "Check for Deleted Entries",
+   "options": "Weekly\nDaily\nNever",
+   "default": "Weekly",
+   "description": "Re-reads every entry to flag those deleted in Epicollect. Costs one full download each time."
+  },
+  {
+   "fieldname": "notify_section",
+   "fieldtype": "Section Break",
+   "label": "Notifications"
+  },
+  {
+   "fieldname": "notify_emails",
+   "fieldtype": "Small Text",
+   "label": "Email Alerts To",
+   "description": "Email addresses, separated by commas or new lines. Sent when syncs start failing, when they work again, and when no new entries arrive."
+  },
+  {
+   "fieldname": "col_notify",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "inactivity_days",
+   "fieldtype": "Int",
+   "label": "Alert if No New Entries for (days)",
+   "default": "0",
+   "description": "0 turns this alert off"
+  },
+  {
+   "fieldname": "advanced",
+   "fieldtype": "Section Break",
+   "label": "Advanced",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "map_index",
+   "fieldtype": "Data",
+   "label": "Mapping Index",
+   "description": "Number of a custom Epicollect mapping. Empty = default mapping"
+  },
+  {
+   "fieldname": "per_page",
+   "fieldtype": "Int",
+   "label": "Entries per Request",
+   "default": "500"
+  },
+  {
+   "fieldname": "col_adv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "doctype_prefix",
+   "fieldtype": "Data",
+   "label": "DocType Name Prefix",
+   "description": "Start of the names of the DocTypes created for this project's forms, e.g. 'Household Survey'. Letters, digits and spaces. Changing it later doesn't rename existing DocTypes."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "autoname": "field:project_slug",
+ "naming_rule": "By fieldname",
+ "title_field": "project_slug",
+ "links": [
+  {
+   "link_doctype": "Epicollect Sync Target",
+   "link_fieldname": "project",
+   "group": "Sync"
+  },
+  {
+   "link_doctype": "Epicollect Sync Log",
+   "link_fieldname": "project",
+   "group": "Sync"
+  }
+ ]
+}

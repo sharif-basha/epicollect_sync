@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check app --select E,F,W --ignore W191,E101
+      - name: Set up bench
+        run: |
+          sudo apt-get update && sudo apt-get install -y libmariadb-dev pkg-config
+          pip install frappe-bench
+          bench init --frappe-branch version-15 --skip-redis-config-generation --skip-assets --no-backups ~/frappe-bench
+          cd ~/frappe-bench
+          bench set-config -g redis_cache redis://127.0.0.1:6379
+          bench set-config -g redis_queue redis://127.0.0.1:6379
+          bench set-config -g redis_socketio redis://127.0.0.1:6379
+          bench get-app epicollect_sync "$GITHUB_WORKSPACE/app" --skip-assets
+          bench new-site test.local --db-host 127.0.0.1 --db-root-password root --admin-password admin \
+            --mariadb-user-host-login-scope=% --install-app epicollect_sync
+          bench --site test.local set-config allow_tests true
+      - name: Run tests
+        working-directory: /home/runner/frappe-bench
+        run: bench --site test.local run-tests --app epicollect_sync
