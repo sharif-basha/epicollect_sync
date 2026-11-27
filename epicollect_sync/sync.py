@@ -143,6 +143,7 @@ def run_setup(project):
                     seen.update(dict.fromkeys(e))
             keys += list(seen)
         a, typed_keys = fields.add_fields(t, list(dict.fromkeys(keys)), q)
+        fields.ensure_nullable(t)
         n_text, n_typed = n_text + a, n_typed + len(typed_keys)
         n_filled += fields.backfill(t, typed_keys)
     dashboards.ensure(p)
@@ -231,6 +232,7 @@ def _sync_target(p, t, full, defn_cache, counts):
     newest = api.to_utc(checkpoint)
     since = None if full else (newest - timedelta(minutes=OVERLAP_MIN) if newest else None)
     seen = set()
+    fields.ensure_nullable(t)  # also repairs DocTypes created before this was handled
     for entries in api.pages(p, t, since):
         entries = [e for e in entries if targets.uuid_of(t, e)]
         fm = fields.fmap(t)
