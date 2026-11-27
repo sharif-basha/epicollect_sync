@@ -510,3 +510,47 @@ class TestTokenLimit(SyncTestCase):
         with patch.object(self.api, "get", get):
             self.assertEqual(self.run_sync().status, "Success")
         self.assertEqual(self.api.token_calls, 1)
+
+
+class TestEmptyNumbers(SyncTestCase):
+    """Frappe creates Int/Float columns NOT NULL; blank answers must still save, as empty rather than 0."""
+
+    BLANK = {"1_age": "", "2_dob": "", "3_loc": {"latitude": "", "longitude": "", "accuracy": ""}, "7_name": "X"}
+
+    def test_blank_numbers_and_location_save_as_empty(self):
+        self.api.add("F1", f"{self.slug}-full", ts(1), **ANSWERS)
+        self.api.add("F1", f"{self.slug}-blank", ts(2), **self.BLANK)
+        self.api.add("F1", f"{self.slug}-junk", ts(3), **{**ANSWERS, "1_age": "about 40"})
+        log = self.run_sync()
+        self.assertEqual(log.status, "Success", log.error)
+        dt, age = self.dt(), self.tfield("1_age")
+        self.assertIsNone(frappe.db.get_value(dt, f"{self.slug}-blank", age))
+        self.assertIsNone(frappe.db.get_value(dt, f"{self.slug}-blank", "latitude"))
+        self.assertIsNone(frappe.db.get_value(dt, f"{self.slug}-junk", age))
+        self.assertEqual(frappe.db.get_value(dt, f"{self.slug}-full", age), 34)
+        # averages ignore missing answers instead of counting them as 0
+        avg = frappe.db.sql(f"select avg(`{age}`) from `tab{dt}`")[0][0]
+        self.assertEqual(float(avg), 34.0)
+
+    def test_update_to_blank_and_columns_stay_nullable_after_new_fields(self):
+        self.api.add("F1", f"{self.slug}-u", ts(1), **ANSWERS)
+        self.run_sync()
+        # a new question makes Frappe alter the table again
+        proj = self.api.project
+        proj["data"]["project"]["forms"][0]["inputs"].append({"ref": "F1_inc", "type": "decimal", "question": "Inc"})
+        proj["meta"]["project_mapping"][0]["forms"]["F1"]["F1_inc"] = {"map_to": "8_inc"}
+        e = self.api.data[("F1", None)][f"{self.slug}-u"]
+        e.update(self.BLANK, uploaded_at=ts(9), **{"8_inc": ""})
+        log = self.run_sync()
+        self.assertEqual(log.status, "Success", log.error)
+        self.assertIsNone(frappe.db.get_value(self.dt(), f"{self.slug}-u", self.tfield("1_age")))
+        self.assertIsNone(frappe.db.get_value(self.dt(), f"{self.slug}-u", self.tfield("8_inc")))
+
+    def test_repairs_not_null_columns_of_existing_doctypes(self):
+        self.api.add("F1", f"{self.slug}-r", ts(1), **ANSWERS)
+        self.run_sync()
+        dt, age = self.dt(), self.tfield("1_age")
+        frappe.db.sql_ddl(f"alter table `tab{dt}` modify `{age}` int(11) not null default 0")
+        self.api.add("F1", f"{self.slug}-r2", ts(5), **self.BLANK)
+        self.assertEqual(self.run_sync().status, "Success")
+        self.assertIsNone(frappe.db.get_value(dt, f"{self.slug}-r2", age))

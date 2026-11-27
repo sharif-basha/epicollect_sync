@@ -100,8 +100,30 @@ def add_fields(t, keys, defn=None):
         frappe.db.set_value(TARGET, t.name, {"field_map": json.dumps(fm), "typed_map": json.dumps(tm),
                                              "location_key": loc}, update_modified=False)
         frappe.clear_cache(doctype=t.target_doctype)
+        ensure_nullable(t, tm)
         frappe.db.commit()
     return n_text, typed_keys
+
+
+def ensure_nullable(t, tm=None):
+    """Let number columns hold 'no answer'. Frappe creates Int and Float columns as NOT NULL DEFAULT 0, so an
+    empty or unparseable answer would either fail to save or turn into 0, which reads as a real answer and
+    skews counts and averages. Frappe leaves the column alone afterwards: it only alters a column when its
+    type, default, index or uniqueness changes. Cheap to call: it only alters columns still NOT NULL."""
+    tm = tmap(t) if tm is None else tm
+    meta = frappe.get_meta(t.target_doctype)
+    wanted = {fn for spec in tm.values() for fn in spec["fields"].values()} | {"latitude", "longitude"}
+    wanted = {fn for fn in wanted if (df := meta.get_field(fn)) and df.fieldtype in ("Int", "Float")}
+    if not wanted:
+        return 0
+    table = f"tab{t.target_doctype}"
+    cols = frappe.db.sql("""select column_name, column_type from information_schema.columns
+        where table_schema = database() and table_name = %s and is_nullable = 'NO'""", table)
+    todo = [(c, ctype) for c, ctype in cols if c in wanted]
+    if todo:
+        frappe.db.sql_ddl(f"alter table `{table}` "
+                          + ", ".join(f"modify `{c}` {ctype} null default null" for c, ctype in todo))
+    return len(todo)
 
 
 def _create(dt, fields):
