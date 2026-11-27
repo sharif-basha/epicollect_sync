@@ -1,0 +1,80 @@
+{
+ "doctype": "DocType",
+ "name": "Epicollect Sync Log Target",
+ "module": "Epicollect Sync",
+ "custom": 0,
+ "engine": "InnoDB",
+ "creation": "2026-11-11 00:00:00",
+ "modified": "2026-11-27 12:00:00",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "target",
+   "fieldtype": "Link",
+   "options": "Epicollect Sync Target",
+   "label": "Target",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Data",
+   "label": "DocType",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "fetched",
+   "fieldtype": "Int",
+   "label": "Fetched",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "inserted",
+   "fieldtype": "Int",
+   "label": "New",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "updated",
+   "fieldtype": "Int",
+   "label": "Changed",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "unchanged",
+   "fieldtype": "Int",
+   "label": "Unchanged",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "deleted",
+   "fieldtype": "Int",
+   "label": "Deleted",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2
+  }
+ ],
+ "permissions": [],
+ "istable": 1
+}

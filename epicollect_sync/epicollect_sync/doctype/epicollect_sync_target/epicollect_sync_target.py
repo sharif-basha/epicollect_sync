@@ -1,5 +1,5 @@
 from frappe.model.document import Document
 
 
-class EpicollectSettings(Document):
+class EpicollectSyncTarget(Document):
 	pass
