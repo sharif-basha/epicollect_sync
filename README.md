@@ -24,12 +24,27 @@ Each generated DocType has:
 ## Install
 ```bash
 cd ~/frappe-bench
-bench get-app https://github.com/<you>/epicollect_sync
+bench get-app https://github.com/sharif-basha/epicollect_sync
 bench --site yoursite.local install-app epicollect_sync
 bench --site yoursite.local enable-scheduler
 ```
+If the repository is private, GitHub asks for a username and a personal access token (not your password).
+
 Background workers must be running (`bench start` in development, supervisor in production): syncs run on the
 `long` queue. Email alerts need an outgoing Email Account.
+
+## Update
+Run as the bench user (not root), from the bench folder. `bench get-app` names the remote `upstream`; check
+with `git remote -v`.
+```bash
+cd ~/frappe-bench/apps/epicollect_sync && git pull upstream main && cd ../..
+bench setup requirements --python
+bench --site yoursite migrate
+bench build --app epicollect_sync
+sudo supervisorctl restart all     # production; in development restart `bench start`
+```
+If `git pull upstream` says *'upstream' does not appear to be a git repository*, add the remote once:
+`git remote add upstream https://github.com/sharif-basha/epicollect_sync.git`, then pull again.
 
 ## Use
 1. Create an **Epicollect Project**: the slug (the part after `/project/` in the project's address), client ID and
@@ -54,8 +69,11 @@ from the project definition.
 | Date | `<field>_date` (Date) |
 | Location | `<field>_lat`, `<field>_lng` (Float, 7 decimals), `<field>_acc` (accuracy in metres) |
 
-- An answer that can't be parsed (text in a number question, a whole number outside the Int range, coordinates
-  out of range, an invalid date) leaves the typed column empty. The text field still has it.
+- A blank answer, or one that can't be parsed (text in a number question, a whole number outside the Int range,
+  coordinates out of range, an invalid date), leaves the typed column **empty, not 0**, so "no answer" is not
+  counted as zero in sums and averages. The text field still has the answer as received.
+- Frappe normally creates number columns that can't be empty; the app changes them to allow empty values, when
+  they are created and again at the start of each sync (which also repairs DocTypes from older versions).
 - Dates are used as they appear in Epicollect, with no timezone shift. Dates not in ISO form are read using the
   question's day/month order.
 - Field names are generated (`q_` + the API key, lower-case, with a short hash if too long). Short, clean API keys
@@ -67,6 +85,17 @@ Epicollect's export has no list of deletions, so the app finds them by re-readin
 (**Check for Deleted Entries**: Weekly, Daily or Never), or on demand with **Check for Deleted Entries Now**.
 Entries no longer returned are flagged **Deleted in Epicollect**; if one comes back, the flag is cleared. As a
 safety net, nothing is flagged if Epicollect returns fewer than half of the entries already synced; the log says so.
+
+## Access tokens and Epicollect's limit
+Epicollect limits how many access tokens a client can request per hour.
+- The app reuses one token until it expires (about 2 hours), whatever the number of forms and pages.
+- If Epicollect says the limit is reached (HTTP 429), the app requests no token until the wait Epicollect gives
+  is over: the run stops at the first form, **Sync Now** says how many minutes are left, and the scheduler
+  skips the project until then. Syncing then resumes on its own, from each form's checkpoint.
+- Don't keep clicking **Sync Now** or **Test Connection** while waiting: requests during the wait can extend it.
+- Other tools using the same client ID share the limit. Give this Frappe site its own client in Epicollect.
+- A 401 with a fresh token means the client may not read this project (or the slug is wrong); the app reports
+  it instead of asking for more tokens.
 
 ## Alerts
 With **Email Alerts To** filled in, the app emails:
@@ -96,6 +125,16 @@ form, and removes Epicollect Settings. The next sync adds DocTypes for any other
 - Never commit credentials. The client secret is stored encrypted by Frappe's Password field.
 - Not synced: photos, audio and video files (only the answers), and anything from Frappe back to Epicollect.
 - Tested on Frappe 15 with a fake Epicollect API, not against a live project yet. Try it on a development site first.
+
+## Troubleshooting
+| Symptom | Cause and fix |
+|---|---|
+| Sync Log: *Epicollect's limit on new access tokens is reached* | See [Access tokens](#access-tokens-and-epicollects-limit). Wait the minutes shown; it resumes on its own. |
+| Sync Log: *HTTP 401 with a valid access token* | The client can't read this project, or the Project Slug is wrong. Check both in Epicollect. |
+| Entries of some forms are not in **Epicollect Entry** | Each form and branch has its own DocType (see **Epicollect Sync Target**). Epicollect Entry holds only the first form of a project upgraded from 0.1. |
+| Answers don't show in the list | The list shows only title, upload time and collector. Open an entry, or use **Report view** and pick columns. |
+| A form has fewer entries than Epicollect | Check the latest Sync Log for errors. Then **Sync > Reset Checkpoints** and **Sync Now**: everything is re-read, unchanged entries are skipped. |
+| *Column '..._num' cannot be null* (versions before 1.0.2) | Update the app; the next sync repairs the columns. |
 
 ## Tests
 Integration tests run on a real site against a fake Epicollect API:
