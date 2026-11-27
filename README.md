@@ -22,7 +22,8 @@ Background workers must be running (`bench start` in development, supervisor in 
 ## Use
 1. Open **Epicollect Settings**, fill in the project slug, client ID and secret, tick **Enabled**, Save.
 2. Click **Sync Now**, then open **Epicollect Sync Log** to follow the run. After that it runs hourly.
-3. The first run fetches everything. Later runs fetch only entries uploaded since the checkpoint (with a 5-minute overlap), insert new entries, and update only entries whose data changed.
+3. The first run fetches everything. Later runs fetch only entries uploaded since the checkpoint (with a 5-minute overlap), insert new entries in bulk, and update only entries whose data changed (compared by a hash of the entry).
+4. Each entry also keeps the entry exactly as received in **Raw Entry (JSON)**.
 
 ## Question fields
 Each question gets its own field on Epicollect Entry, so you can filter, group and report on it in list views and reports.
@@ -35,6 +36,17 @@ Each question gets its own field on Epicollect Entry, so you can filter, group a
 
 ## Notes
 - Timestamps are stored as UTC.
-- Only one sync runs at a time (the job is de-duplicated).
+- Only one sync or field-creation job runs at a time. If you click a button while one is running, you are told so instead of the job being queued.
+- Entries are fetched in `uploaded_at` order, using the newest entry seen as the start of the next request (not page numbers), so entries edited during a run are never skipped. If Epicollect ever returns entries out of order, the run stops without moving the checkpoint.
+- Network errors, HTTP 5xx and 429 are retried a few times with backoff, then the run fails and the next run resumes from the checkpoint.
+- A run that was killed (job timeout, worker restart) is marked Failed at the start of the next run. Sync logs older than 90 days are deleted.
+- Not synced yet: branch entries, child forms, and entries deleted in Epicollect.
 - Never commit credentials. The client secret is stored encrypted by Frappe's Password field.
 - Untested against a live Epicollect project. Try it on a development site first.
+
+## Tests
+The sync logic has stand-alone tests that use an in-memory fake of Frappe and of the Epicollect API, so they run without a bench:
+```bash
+pip install pytest requests python-dateutil
+python -m pytest tests
+```

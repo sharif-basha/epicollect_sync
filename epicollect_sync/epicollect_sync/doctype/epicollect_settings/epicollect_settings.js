@@ -1,19 +1,26 @@
 frappe.ui.form.on("Epicollect Settings", {
 	refresh(frm) {
-		frm.add_custom_button(__("Sync Now"), () => {
-			frappe.call({ method: "epicollect_sync.sync.sync_now", freeze: true, freeze_message: __("Queuing sync...") })
-				.then(() => frappe.show_alert({ message: __("Sync queued. Follow it in Epicollect Sync Log."), indicator: "green" }));
-		});
+		const queue = (method, freeze_message) => {
+			// Save first, so the job runs with the settings shown on screen.
+			const saved = frm.is_dirty() ? frm.save() : Promise.resolve();
+			saved
+				.then(() => frappe.call({ method, freeze: true, freeze_message }))
+				.then((r) => {
+					const res = r.message || {};
+					frappe.show_alert({ message: __(res.message || ""), indicator: res.queued ? "green" : "orange" }, 7);
+				});
+		};
+		frm.add_custom_button(__("Sync Now"), () => queue("epicollect_sync.sync.sync_now", __("Queuing sync...")));
 		frm.add_custom_button(__("Create Fields"), () => {
-			frappe.confirm(__("Scan Epicollect and create one field per question on Epicollect Entry. This can take several minutes. Continue?"), () => {
-				frappe.call({ method: "epicollect_sync.sync.create_fields" })
-					.then(() => frappe.show_alert({ message: __("Field creation queued. You will get a message when it finishes."), indicator: "green" }));
-			});
+			frappe.confirm(__("Scan Epicollect and create one field per question on Epicollect Entry. This can take several minutes. Continue?"), () =>
+				queue("epicollect_sync.sync.create_fields", __("Queuing field creation...")));
 		});
 		frm.add_custom_button(__("Reset Checkpoint"), () => {
 			frappe.confirm(__("The next sync will re-fetch every entry. Continue?"), () => {
-				frm.set_value("last_uploaded_at", "");
-				frm.save();
+				frappe.call({ method: "epicollect_sync.sync.reset_checkpoint" }).then(() => {
+					frm.reload_doc();
+					frappe.show_alert({ message: __("Checkpoint cleared."), indicator: "green" });
+				});
 			});
 		});
 	},
