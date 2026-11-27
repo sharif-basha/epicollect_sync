@@ -5,7 +5,7 @@
  "custom": 0,
  "engine": "InnoDB",
  "creation": "2026-11-11 00:00:00",
- "modified": "2026-11-11 00:00:00",
+ "modified": "2026-11-27 00:00:00",
  "owner": "Administrator",
  "modified_by": "Administrator",
  "sort_field": "modified",
@@ -21,7 +21,7 @@
   },
   {
    "fieldname": "entry_title",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "label": "Title",
    "read_only": 1,
    "in_list_view": 1
@@ -44,6 +44,27 @@
    "fieldname": "created_by",
    "fieldtype": "Data",
    "label": "Created By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sync",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "data_hash",
+   "fieldtype": "Data",
+   "label": "Data Hash",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "SHA-1 of the entry as received; used to skip unchanged entries"
+  },
+  {
+   "fieldname": "raw_json",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Raw Entry (JSON)",
    "read_only": 1
   }
  ],
