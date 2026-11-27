@@ -20,8 +20,8 @@ def _send(p, subject, message):
         frappe.sendmail(recipients=to, subject=subject, message=message, reference_doctype=PROJECT,
                         reference_name=p.name)
     except frappe.OutgoingEmailError:
-        frappe.log_error(f"{subject}\n\nNo outgoing Email Account is set up, so this alert was not emailed.",
-                         "Epicollect Sync: alert not sent")
+        frappe.log_error(title="Epicollect Sync: alert not sent",
+                         message=f"{subject}\n\nNo outgoing Email Account is set up, so this alert was not emailed.")
 
 
 def after_run(project, log_name, status, err):
